@@ -5,6 +5,8 @@ from pathvalidate import sanitize_filename
 from urllib.parse import urljoin, urlencode
 import argparse
 import time
+
+
 MAX_RETRIES = 3
 
 
@@ -28,9 +30,9 @@ def download_image(url, filename, folder='images/'):
     return filepath
 
 
-def download_txt(url, filename, folder='books/'):
+def download_txt(url, payload, filename, folder='books/'):
     os.makedirs(folder, exist_ok=True)
-    response = requests.get(url)
+    response = requests.get(url, params=payload)
     check_for_redirect(response)
     response.raise_for_status()
     book_path = os.path.join(folder, filename)
@@ -43,19 +45,19 @@ def parse_book_page(html_content, base_url):
     soup = BeautifulSoup(html_content, 'lxml')
     title_tag = soup.find('h1')
     if not title_tag:
-        raise BookParsingError("Title tag not found")
+        raise BookParsingError("Тег заголовка не найден")
 
     title_text = title_tag.text
     parts = title_text.split("::")
     if len(parts) < 2:
-        raise BookParsingError("Title does not contain author")
+        raise BookParsingError("Название не содержит автора")
 
     book_title = parts[0].strip()
     book_author = parts[1].strip()
 
     image_tag = soup.find('div', class_='bookimage')
     if not image_tag:
-        raise BookParsingError("Image tag not found")
+        raise BookParsingError("Тег изображения не найден")
 
     image_url = urljoin(base_url, image_tag.find('img')['src'])
 
@@ -74,92 +76,83 @@ def parse_book_page(html_content, base_url):
     }
 
 
-def download_books(start_id, end_id):
-    for book_id in range(start_id, end_id + 1):
-        params = {'id': book_id}
-        base_url = "https://tululu.org/txt.php"
-        book_url = f"{base_url}?{urlencode(params)}"
-        page_url = f"https://tululu.org/b{book_id}/"
+def download_books(book_id):
+    payload = {'id': book_id}
+    base_url = "https://tululu.org/txt.php"
+    page_url = f"https://tululu.org/b{book_id}/"
 
-        retry_count = 0
-        while retry_count < MAX_RETRIES:
-            try:
-                response = requests.get(page_url)
-                check_for_redirect(response)
-                response.raise_for_status()
-                break
-            except requests.HTTPError as e:
-                print(f"Не удалось получить страницу книги с ID {book_id}: {e}")
-                break
-            except requests.RequestException as e:
-                print(f"Ошибка запроса для книги с ID {book_id}: {e}")
-            except ConnectionError as e:
-                print(f"Ошибка соединения: {e}")
-
-            retry_count += 1
-            if retry_count < MAX_RETRIES:
-                print(f"Повторная попытка через 5 секунд...")
-                time.sleep(5)
-
-        if retry_count == MAX_RETRIES:
-            print(f"Не удалось получить страницу книги с ID {book_id} после {MAX_RETRIES} попыток.")
-            continue
-
+    retry_count = 0
+    while retry_count < MAX_RETRIES:
         try:
-            book_details = parse_book_page(response.text, page_url)
-        except BookParsingError as e:
-            print(f"Ошибка парсинга данных книги с ID {book_id}: {e}")
-            continue
+            response = requests.get(page_url)
+            check_for_redirect(response)
+            response.raise_for_status()
+            break
+        except requests.HTTPError as e:
+            print(f"Не удалось получить страницу книги с ID {book_id}: {e}")
+            break
+        except requests.RequestException as e:
+            print(f"Ошибка запроса для книги с ID {book_id}: {e}")
+        except ConnectionError as e:
+            print(f"Ошибка соединения: {e}")
 
-        filename = sanitize_filename(f"{book_details['title']}.txt")
-        print(f"Загрузка книги: {filename}")
+        retry_count += 1
+        print(f"Повторная попытка через 5 секунд...")
+        time.sleep(5)
 
+    if retry_count == MAX_RETRIES:
+        print(f"Не удалось получить страницу книги с ID {book_id} после {MAX_RETRIES} попыток.")
+        return
+
+    try:
+        book_details = parse_book_page(response.text, page_url)
+    except BookParsingError as e:
+        print(f"Ошибка парсинга данных книги с ID {book_id}: {e}")
+        return
+
+    filename = sanitize_filename(f"{book_details['title']}.txt")
+    print(f"Загрузка книги: {filename}")
+
+    retry_count = 0
+    while retry_count < MAX_RETRIES:
+        try:
+            download_txt(base_url, payload, filename)
+            break
+        except requests.HTTPError as e:
+            print(f"Ошибка загрузки текста книги с ID {book_id}: {e}")
+        except requests.RequestException as e:
+            print(f"Ошибка запроса для текста книги с ID {book_id}: {e}")
+        except IOError as e:
+            print(f"Ошибка записи файла для книги с ID {book_id}: {e}")
+
+        retry_count += 1
+        print(f"Повторная попытка через 5 секунд...")
+        time.sleep(5)
+
+    if book_details["image_url"]:
+        image_url = book_details["image_url"]
+        image_filename = f"{book_id}.jpg"
         retry_count = 0
         while retry_count < MAX_RETRIES:
             try:
-                download_txt(book_url, filename)
+                download_image(image_url, image_filename)
                 break
             except requests.HTTPError as e:
-                print(f"Ошибка загрузки текста книги с ID {book_id}: {e}")
+                print(f"Ошибка загрузки изображения книги с ID {book_id}: {e}")
             except requests.RequestException as e:
-                print(f"Ошибка запроса для текста книги с ID {book_id}: {e}")
+                print(f"Ошибка запроса для изображения книги с ID {book_id}: {e}")
             except IOError as e:
-                print(f"Ошибка записи файла для книги с ID {book_id}: {e}")
+                print(f"Ошибка записи изображения для книги с ID {book_id}: {e}")
 
             retry_count += 1
-            if retry_count < MAX_RETRIES:
-                print(f"Повторная попытка через 5 секунд...")
-                time.sleep(5)
+            print(f"Повторная попытка через 5 секунд...")
+            time.sleep(5)
 
         if retry_count == MAX_RETRIES:
-            print(f"Не удалось загрузить текст книги с ID {book_id} после {MAX_RETRIES} попыток.")
-            continue
+            print(f"Не удалось загрузить изображение книги с ID {book_id} после {MAX_RETRIES} попыток.")
 
-        if book_details["image_url"]:
-            image_url = book_details["image_url"]
-            image_filename = f"{book_id}.jpg"
-            retry_count = 0
-            while retry_count < MAX_RETRIES:
-                try:
-                    download_image(image_url, image_filename)
-                    break
-                except requests.HTTPError as e:
-                    print(f"Ошибка загрузки изображения книги с ID {book_id}: {e}")
-                except requests.RequestException as e:
-                    print(f"Ошибка запроса для изображения книги с ID {book_id}: {e}")
-                except IOError as e:
-                    print(f"Ошибка записи изображения для книги с ID {book_id}: {e}")
-
-                retry_count += 1
-                if retry_count < MAX_RETRIES:
-                    print(f"Повторная попытка через 5 секунд...")
-                    time.sleep(5)
-
-            if retry_count == MAX_RETRIES:
-                print(f"Не удалось загрузить изображение книги с ID {book_id} после {MAX_RETRIES} попыток.")
-
-        print(f"Жанры: {', '.join(book_details['genres'])}")
-        print(f"Комментарии: {'; '.join(book_details['comments'])}")
+    print(f"Жанры: {', '.join(book_details['genres'])}")
+    print(f"Комментарии: {'; '.join(book_details['comments'])}")
 
 
 def main():
@@ -168,7 +161,8 @@ def main():
     parser.add_argument("end_id", type=int, help="ID книги до которой скачивать")
     args = parser.parse_args()
 
-    download_books(args.start_id, args.end_id)
+    for book_id in range(args.start_id, args.end_id + 1):
+        download_books(book_id)
 
 
 if __name__ == "__main__":
