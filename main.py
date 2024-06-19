@@ -90,7 +90,7 @@ def download_book(book_id):
             break
         except requests.HTTPError as e:
             print(f"Не удалось получить страницу книги с ID {book_id}: {e}")
-            break
+            return
         except requests.RequestException as e:
             print(f"Ошибка запроса для книги с ID {book_id}: {e}")
         except ConnectionError as e:
@@ -129,27 +129,36 @@ def download_book(book_id):
         print(f"Повторная попытка через 5 секунд...")
         time.sleep(5)
 
-    if book_details["image_url"]:
-        image_url = book_details["image_url"]
-        image_filename = f"{book_id}.jpg"
-        retry_count = 0
-        while retry_count < MAX_RETRIES:
-            try:
-                download_image(image_url, image_filename)
-                break
-            except requests.HTTPError as e:
-                print(f"Ошибка загрузки изображения книги с ID {book_id}: {e}")
-            except requests.RequestException as e:
-                print(f"Ошибка запроса для изображения книги с ID {book_id}: {e}")
-            except IOError as e:
-                print(f"Ошибка записи изображения для книги с ID {book_id}: {e}")
+    if retry_count == MAX_RETRIES:
+        print(f"Не удалось загрузить текст книги с ID {book_id} после {MAX_RETRIES} попыток.")
+        return
 
-            retry_count += 1
-            print(f"Повторная попытка через 5 секунд...")
-            time.sleep(5)
+    if not book_details.get("image_url"):
+        print(f"Жанры: {', '.join(book_details['genres'])}")
+        print(f"Комментарии: {'; '.join(book_details['comments'])}")
+        return
 
-        if retry_count == MAX_RETRIES:
-            print(f"Не удалось загрузить изображение книги с ID {book_id} после {MAX_RETRIES} попыток.")
+    image_url = book_details["image_url"]
+    image_filename = f"{book_id}.jpg"
+    retry_count = 0
+    while retry_count < MAX_RETRIES:
+        try:
+            download_image(image_url, image_filename)
+            break
+        except requests.HTTPError as e:
+            print(f"Ошибка загрузки изображения книги с ID {book_id}: {e}")
+        except requests.RequestException as e:
+            print(f"Ошибка запроса для изображения книги с ID {book_id}: {e}")
+        except IOError as e:
+            print(f"Ошибка записи изображения для книги с ID {book_id}: {e}")
+
+        retry_count += 1
+        print(f"Повторная попытка через 5 секунд...")
+        time.sleep(5)
+
+    if retry_count == MAX_RETRIES:
+        print(f"Не удалось загрузить изображение книги с ID {book_id} после {MAX_RETRIES} попыток.")
+        return
 
     print(f"Жанры: {', '.join(book_details['genres'])}")
     print(f"Комментарии: {'; '.join(book_details['comments'])}")
