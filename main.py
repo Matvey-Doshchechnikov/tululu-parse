@@ -76,7 +76,7 @@ def parse_book_page(html_content, base_url):
     }
 
 
-def download_books(book_id):
+def download_book(book_id):
     payload = {'id': book_id}
     base_url = "https://tululu.org/txt.php"
     page_url = f"https://tululu.org/b{book_id}/"
@@ -162,7 +162,7 @@ def main():
     args = parser.parse_args()
 
     for book_id in range(args.start_id, args.end_id + 1):
-        download_books(book_id)
+        download_book(book_id)
 
 
 if __name__ == "__main__":
